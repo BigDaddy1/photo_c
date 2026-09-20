@@ -1,0 +1,32 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://photocolor:photocolor@db:5432/photocolor
+      STORAGE_PATH: /data/images
+      MAX_UPLOAD_BYTES: "10485760"
+    volumes:
+      - image_data:/data/images
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: photocolor
+      POSTGRES_USER: photocolor
+      POSTGRES_PASSWORD: photocolor
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U photocolor -d photocolor"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  image_data:
+  postgres_data:
