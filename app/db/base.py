@@ -2,8 +2,8 @@ import uuid
 from datetime import datetime
 from typing import Any, Self
 
-from sqlalchemy import DateTime, delete, func, select, update
-from sqlalchemy.dialects.postgresql import UUID, insert
+from sqlalchemy import DateTime, delete, func, select
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.db.session import SessionLocal
@@ -28,10 +28,10 @@ class BaseModel(Base):
     )
 
     async def create(self) -> Self:
-        """Persist this model instance and refresh database-generated fields."""
-        async with self.__session__() as session:
+        """Persist this model instance atomically, including generated-field refresh."""
+        async with self.__session__() as session, session.begin():
             session.add(self)
-            await session.commit()
+            await session.flush()
             await session.refresh(self)
         return self
 
@@ -50,30 +50,7 @@ class BaseModel(Base):
         return await cls.select(select(cls).where(cls.id == record_id), first=True)
 
     @classmethod
-    async def update(cls, where: Any, **values: Any) -> list[uuid.UUID]:
-        statement = update(cls).where(where).values(**values).returning(cls.id)
-        async with cls.__session__() as session:
-            updated_ids = list(await session.scalars(statement))
-            await session.commit()
-        return updated_ids
-
-    @classmethod
     async def delete(cls, where: Any) -> None:
         async with cls.__session__() as session:
             await session.execute(delete(cls).where(where))
-            await session.commit()
-
-    @classmethod
-    async def upsert(
-        cls,
-        values: dict[str, Any],
-        conflict_columns: list[Any],
-        update_values: dict[str, Any],
-    ) -> None:
-        statement = insert(cls).values(**values).on_conflict_do_update(
-            index_elements=conflict_columns,
-            set_=update_values,
-        )
-        async with cls.__session__() as session:
-            await session.execute(statement)
             await session.commit()

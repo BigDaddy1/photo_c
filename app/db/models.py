@@ -58,17 +58,17 @@ class ImageRecord(BaseModel):
     palette: Mapped[list[str]] = mapped_column(JSONB)
 
     async def create(self) -> Self:
+        """Persist an image and its RGB aggregate in one transaction."""
         red, green, blue = palette_rgb_totals(self.palette)
-        async with self.__session__() as session:
-            async with session.begin():
-                session.add(self)
-                await session.flush()
-                await ColorStatistics.apply_delta(
-                    session,
-                    red=red,
-                    green=green,
-                    blue=blue,
-                )
+        async with self.__session__() as session, session.begin():
+            session.add(self)
+            await session.flush()
+            await ColorStatistics.apply_delta(
+                session,
+                red=red,
+                green=green,
+                blue=blue,
+            )
             await session.refresh(self)
         return self
 
