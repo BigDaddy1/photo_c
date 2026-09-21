@@ -143,4 +143,4 @@ docker compose logs api
 
 ## Persistence note
 
-Alembic owns the database schema. The Docker API container runs `alembic upgrade head` before starting Uvicorn, so a fresh local database is initialised automatically and subsequent image versions can apply versioned migrations. In a multi-instance production deployment, migrations should instead run once as a separate CI/CD deployment step before rolling out application instances.
+Alembic owns the database schema. Migration scripts live in `app/db/migrations`. The Docker API container runs `alembic upgrade head` before starting Uvicorn, so a fresh local database is initialised automatically and subsequent image versions can apply versioned migrations. In a multi-instance production deployment, migrations should instead run once as a separate CI/CD deployment step before rolling out application instances.
