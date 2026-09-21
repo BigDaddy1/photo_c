@@ -50,7 +50,7 @@ docker compose down --volumes
 
 ### Upload and inspect an image
 
-The service accepts a real JPEG by inspecting the file contents, not by trusting the filename or MIME header. The maximum upload size defaults to 10 MiB and can be changed with `MAX_UPLOAD_BYTES`.
+The service accepts a real JPEG by inspecting the file contents, not by trusting the filename or MIME header. Uploads are read in bounded chunks, the maximum file size defaults to 10 MiB (`MAX_UPLOAD_BYTES`), and the maximum decoded image size defaults to 25,000,000 pixels (`MAX_IMAGE_PIXELS`). Pillow processing runs outside the API worker's event loop.
 
 ```bash
 curl -X POST http://localhost:8000/images \
@@ -91,7 +91,7 @@ The palette response has this shape:
 ### Error responses
 
 - `404`: an image or stored file does not exist.
-- `413`: upload exceeds `MAX_UPLOAD_BYTES`.
+- `413`: upload exceeds `MAX_UPLOAD_BYTES` or `MAX_IMAGE_PIXELS`.
 - `415`: uploaded content is not a valid JPEG.
 - `422`: malformed multipart request or invalid query/path parameters.
 
@@ -106,11 +106,21 @@ curl -X POST http://localhost:8000/images -F 'file=@source.jpg;type=image/jpeg'
 
 ## Automated tests
 
-Install the project and its development dependencies with a Python 3.12+ environment, then run:
+Install the locked development dependencies with a Python 3.12+ environment, then run:
 
 ```bash
-pip install -e '.[dev]'
+pip install --require-hashes -r requirements-dev.lock
+pip install --no-deps -e .
 pytest
+```
+
+`pyproject.toml` describes the project dependencies. `requirements.lock` and `requirements-dev.lock` pin the full resolved dependency graph, including indirect dependencies, so Docker, CI, and local development use reproducible versions.
+
+When dependency constraints change, regenerate both lock files with `pip-tools` and commit the resulting files:
+
+```bash
+pip-compile --generate-hashes --output-file=requirements.lock pyproject.toml
+pip-compile --extra dev --generate-hashes --output-file=requirements-dev.lock pyproject.toml
 ```
 
 The included tests cover the global RGB calculation and its rounding invariant. The Docker smoke test described above covers the HTTP workflow against PostgreSQL.
@@ -129,7 +139,7 @@ By default the script uploads `tests/fixtures/fez.jpg`. You may provide a differ
 python3 scripts/demo_api.py http://localhost:8000 /path/to/photo.jpg
 ```
 
-The script creates one image and removes that same image at the end, including when it exits early.
+The script runs successful requests and meaningful failure cases: invalid JPEG upload (`415`), invalid list pagination (`422`), unknown image IDs (`404`), and unsupported methods (`405`). It verifies that a downloaded file matches the uploaded JPEG byte-for-byte, then removes its own test image, including when it exits early.
 
 ## Error logs
 
