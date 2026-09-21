@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from pathlib import Path
 from typing import Annotated, ClassVar
@@ -15,9 +16,20 @@ from app.services.image_storage import (
     ImageStorageService,
     get_image_storage_service,
 )
-from app.services.palette import InvalidJpegError, analyse_jpeg
+from app.services.palette import ImageTooLargeError, InvalidJpegError, analyse_jpeg
 
 Storage = Annotated[ImageStorageService, Depends(get_image_storage_service)]
+UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
+
+
+async def read_upload_content(file: UploadFile) -> bytes:
+    """Read an upload incrementally without exceeding the configured byte limit."""
+    content = bytearray()
+    while chunk := await file.read(UPLOAD_READ_CHUNK_BYTES):
+        if len(content) + len(chunk) > settings.max_upload_bytes:
+            raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail="File is too large")
+        content.extend(chunk)
+    return bytes(content)
 
 
 async def get_image_or_404(image_id: uuid.UUID) -> ImageRecord:
@@ -40,20 +52,24 @@ class ImageUploadView(APIView):
         storage: Storage,
         file: Annotated[UploadFile, File(description="JPEG image to upload")],
     ) -> ImageRecord:
-        content = await file.read()
+        content = await read_upload_content(file)
         if not content:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="File is empty")
-        if len(content) > settings.max_upload_bytes:
-            raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File is too large")
 
         try:
-            width, height, palette = analyse_jpeg(content)
+            width, height, palette = await asyncio.to_thread(
+                analyse_jpeg,
+                content,
+                max_pixels=settings.max_image_pixels,
+            )
+        except ImageTooLargeError as exc:
+            raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=str(exc)) from exc
         except InvalidJpegError as exc:
             raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail=str(exc)) from exc
 
         stored_filename = f"{uuid.uuid4()}.jpg"
+        await storage.save(stored_filename, content)
         try:
-            await storage.save(stored_filename, content)
             image = ImageRecord(
                 original_filename=Path(file.filename or "upload.jpg").name,
                 stored_filename=stored_filename,
@@ -100,6 +116,9 @@ class ImageDetailView(APIView):
         if not images:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
         image = images[0]
+        # Metadata is deleted first to keep the database and RGB aggregate transactionally
+        # consistent. If storage deletion fails, an orphan file can remain; production should
+        # add a transactional outbox and retry worker to de-orphan stored files.
         await storage.delete(image.stored_filename)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 

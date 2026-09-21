@@ -1,22 +1,43 @@
+import warnings
 from collections import Counter
 from io import BytesIO
 
 from PIL import Image, UnidentifiedImageError
+
+DEFAULT_MAX_IMAGE_PIXELS = 25_000_000
 
 
 class InvalidJpegError(ValueError):
     pass
 
 
-def analyse_jpeg(content: bytes) -> tuple[int, int, list[str]]:
+class ImageTooLargeError(InvalidJpegError):
+    pass
+
+
+def analyse_jpeg(
+    content: bytes,
+    *,
+    max_pixels: int = DEFAULT_MAX_IMAGE_PIXELS,
+) -> tuple[int, int, list[str]]:
     """Validate a JPEG and return dimensions plus exactly five dominant colours."""
     try:
-        with Image.open(BytesIO(content)) as source:
-            if source.format != "JPEG":
-                raise InvalidJpegError("Only JPEG images are supported")
-            source.load()
-            width, height = source.size
-            rgb = source.convert("RGB")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(BytesIO(content)) as source:
+                if source.format != "JPEG":
+                    raise InvalidJpegError("Only JPEG images are supported")
+                width, height = source.size
+                if width * height > max_pixels:
+                    raise ImageTooLargeError(
+                        f"Image exceeds the {max_pixels:,}-pixel limit"
+                    )
+                source.load()
+                rgb = source.convert("RGB")
+    except ImageTooLargeError:
+        raise
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+        raise ImageTooLargeError("Image exceeds the decompression safety limit") from exc
     except (UnidentifiedImageError, OSError) as exc:
         raise InvalidJpegError("The uploaded file is not a valid JPEG image") from exc
 

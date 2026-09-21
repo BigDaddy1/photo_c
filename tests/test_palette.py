@@ -1,6 +1,11 @@
+from io import BytesIO
 from pathlib import Path
 
+import pytest
+from PIL import Image
+
 from app.services.palette import (
+    ImageTooLargeError,
     analyse_jpeg,
     calculate_rgb_stats,
     normalize_rgb_totals,
@@ -30,3 +35,11 @@ def test_supplied_jpeg_produces_exactly_five_hex_colours() -> None:
     _, _, colors = analyse_jpeg(Path("tests/fixtures/mr_robot.jpg").read_bytes())
     assert len(colors) == 5
     assert all(color.startswith("#") and len(color) == 7 for color in colors)
+
+
+def test_image_pixel_limit_is_checked_before_decoding() -> None:
+    content = BytesIO()
+    Image.new("RGB", (3, 3)).save(content, format="JPEG")
+
+    with pytest.raises(ImageTooLargeError, match="8-pixel limit"):
+        analyse_jpeg(content.getvalue(), max_pixels=8)
