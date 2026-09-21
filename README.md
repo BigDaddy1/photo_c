@@ -21,6 +21,18 @@ Requirements: Docker Desktop (or Docker Engine with Compose).
 docker compose up --build
 ```
 
+The same operations are available through `make`:
+
+```bash
+make run
+make stop
+make test
+make lint
+make demo
+make drop
+make drop HARD=1  # also removes PostgreSQL and uploaded-image volumes
+```
+
 The API is available at `http://localhost:8000`, the interactive documentation at `http://localhost:8000/docs`, and the OpenAPI JSON at `http://localhost:8000/openapi.json`.
 
 To stop the stack while keeping the database and images:

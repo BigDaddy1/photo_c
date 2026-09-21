@@ -1,10 +1,25 @@
-FROM python:3.12-slim
+FROM python:3.12-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     STORAGE_PATH=/data/images
 
 WORKDIR /app
+
+FROM base AS test
+
+COPY requirements-dev.lock ./
+RUN pip install --no-cache-dir --require-hashes -r requirements-dev.lock
+
+COPY app ./app
+COPY tests ./tests
+COPY alembic.ini ./
+COPY pyproject.toml ./
+RUN pip install --no-cache-dir --no-deps .
+
+CMD ["pytest"]
+
+FROM base AS production
 
 COPY requirements.lock ./
 RUN pip install --no-cache-dir --require-hashes -r requirements.lock

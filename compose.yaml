@@ -28,6 +28,17 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  test:
+    profiles: ["test"]
+    build:
+      context: .
+      target: test
+    environment:
+      DATABASE_URL: postgresql+asyncpg://photocolor:photocolor@db:5432/photocolor
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   image_data:
   postgres_data:
